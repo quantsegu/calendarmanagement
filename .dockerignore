@@ -1,0 +1,21 @@
+node_modules
+.next
+out
+dist
+build
+coverage
+.git
+.gitignore
+.cursor
+.idea
+.vscode
+
+# Prisma/local artifacts
+prisma/*.db
+
+# Generated client output (built in container via `prisma generate`)
+src/generated
+
+# Logs
+*.log
+

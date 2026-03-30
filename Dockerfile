@@ -7,6 +7,13 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+
+# `npm ci` runs `prisma generate` in `postinstall`, so Prisma needs the schema
+# files available during the dependency install step.
+COPY prisma ./prisma
+COPY prisma.config.ts ./
+RUN mkdir -p src/generated
+
 RUN npm ci
 
 COPY . .
