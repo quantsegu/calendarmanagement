@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CalendarSourceKind {
+  ICAL
+  GOOGLE
+  MICROSOFT
+  ZOHO
+}
+
+model CalendarSource {
+  id                   String              @id @default(cuid())
+  kind                 CalendarSourceKind  @default(ICAL)
+  name                 String
+  icalUrl              String?
+  color                String              @default("#6366f1")
+  refreshToken         String?
+  accessToken          String?
+  accessTokenExpiresAt DateTime?
+  calendarId           String?
+  accountHint          String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  events               CachedEvent[]
+}
+
+model CachedEvent {
+  id        String         @id @default(cuid())
+  sourceId  String
+  source    CalendarSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  uid       String
+  title     String
+  startUtc  DateTime
+  endUtc    DateTime
+  location  String?
+  isBusy    Boolean        @default(true)
+
+  @@unique([sourceId, uid])
+  @@index([startUtc, endUtc])
+}
+
+model LocationWindow {
+  id        String   @id @default(cuid())
+  label     String
+  address   String?
+  startUtc  DateTime
+  endUtc    DateTime
+  createdAt DateTime @default(now())
+
+  @@index([startUtc, endUtc])
+}
+
+/** User-added entries merged into schedule (not synced from external calendars). */
+model ManualCalendarItem {
+  id          String   @id @default(cuid())
+  title       String
+  startUtc    DateTime
+  endUtc      DateTime
+  location    String?
+  description String?
+  isBusy      Boolean  @default(true)
+  color       String   @default("#64748b")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([startUtc, endUtc])
+}
+
+model ShareLink {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  label     String?
+  createdAt DateTime @default(now())
+}

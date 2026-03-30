@@ -1,0 +1,7 @@
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+healthcheckPath = "/api/openapi"
+startCommand = "npm run start"
+preDeployCommand = ["npx prisma db push"]

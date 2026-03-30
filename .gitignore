@@ -1,0 +1,32 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env files (keep examples)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Prisma (local/dev artifacts)
+prisma/*.db
+prisma/dev.db
+
+# Generated code (created by `prisma generate` / `postinstall`)
+src/generated/
+

@@ -1,0 +1,486 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Calendar & location hub API",
+    "version": "1.0.0",
+    "description": "Schedule, sources, locations, sharing, and manual calendar items.\n\n**Authentication:** Most routes require an HTTP-only session cookie `cal_owner` after `POST /api/auth/login` (or dev mode with `APP_PASSWORD` unset). Use **Try it out** in the browser while logged in so cookies are sent.\n\n**Public:** `GET /api/plan/{token}/schedule`, auth login/logout/config, OAuth callbacks/start, and this OpenAPI document."
+  },
+  "tags": [
+    { "name": "OpenAPI", "description": "Machine-readable spec" },
+    { "name": "Auth", "description": "Login and OAuth" },
+    { "name": "Schedule", "description": "Merged calendar + location timeline" },
+    { "name": "Sources", "description": "Calendar connections" },
+    { "name": "Sync", "description": "Pull remote events" },
+    { "name": "Locations", "description": "Location windows over time" },
+    { "name": "Share", "description": "Public planner links" },
+    { "name": "Manual items", "description": "Hand-entered events" }
+  ],
+  "servers": [{ "url": "http://localhost:3000", "description": "Overridden at runtime by /api/openapi" }],
+  "components": {
+    "securitySchemes": {
+      "OwnerCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "cal_owner",
+        "description": "JWT set by POST /api/auth/login"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" }, "detail": { "type": "string" }, "hint": { "type": "string" } }
+      },
+      "SchedulePayload": {
+        "type": "object",
+        "properties": {
+          "rangeStart": { "type": "string", "format": "date-time" },
+          "rangeEnd": { "type": "string", "format": "date-time" },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startUtc": { "type": "string" },
+                "endUtc": { "type": "string" },
+                "busy": { "type": "boolean" },
+                "eventTitle": { "type": "string", "nullable": true },
+                "eventLocation": { "type": "string", "nullable": true },
+                "sourceName": { "type": "string", "nullable": true },
+                "sourceColor": { "type": "string", "nullable": true },
+                "placeLabel": { "type": "string", "nullable": true },
+                "placeDetail": { "type": "string", "nullable": true }
+              }
+            }
+          },
+          "events": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "locationWindows": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        }
+      },
+      "CalendarSource": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "name": { "type": "string" },
+          "icalUrl": { "type": "string", "nullable": true },
+          "color": { "type": "string" },
+          "eventCount": { "type": "integer" },
+          "accountHint": { "type": "string", "nullable": true },
+          "calendarId": { "type": "string", "nullable": true }
+        }
+      },
+      "ShareLink": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "token": { "type": "string" },
+          "label": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ManualItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string", "enum": ["manual"] },
+          "title": { "type": "string" },
+          "startUtc": { "type": "string", "format": "date-time" },
+          "endUtc": { "type": "string", "format": "date-time" },
+          "location": { "type": "string", "nullable": true },
+          "description": { "type": "string", "nullable": true },
+          "isBusy": { "type": "boolean" },
+          "color": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "LocationWindow": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "address": { "type": "string", "nullable": true },
+          "startUtc": { "type": "string", "format": "date-time" },
+          "endUtc": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/openapi": {
+      "get": {
+        "tags": ["OpenAPI"],
+        "summary": "OpenAPI 3 document (JSON)",
+        "responses": {
+          "200": {
+            "description": "OpenAPI document",
+            "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sign in (sets cal_owner cookie)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "password": { "type": "string", "description": "Matches APP_PASSWORD when set" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "dev": { "type": "boolean" } } } } } },
+          "401": { "description": "Wrong password" },
+          "503": { "description": "APP_PASSWORD not configured" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Clear session cookie",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/auth/config": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Which OAuth providers are configured",
+        "responses": {
+          "200": {
+            "description": "Flags per provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "google": { "type": "boolean" },
+                    "microsoft": { "type": "boolean" },
+                    "zoho": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/{provider}/start": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Start OAuth (redirect to provider)",
+        "parameters": [
+          { "name": "provider", "in": "path", "required": true, "schema": { "type": "string", "enum": ["google", "microsoft", "zoho"] } },
+          { "name": "name", "in": "query", "schema": { "type": "string" } },
+          { "name": "color", "in": "query", "schema": { "type": "string" } },
+          { "name": "calendarId", "in": "query", "schema": { "type": "string" } },
+          { "name": "zohoCalendarUid", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "302": { "description": "Redirect to IdP" },
+          "404": { "description": "Unknown provider" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/auth/{provider}/callback": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "OAuth callback (browser redirect flow)",
+        "parameters": [{ "name": "provider", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "302": { "description": "Redirect back to app" }, "400": { "description": "OAuth error" } }
+      }
+    },
+    "/api/schedule": {
+      "get": {
+        "tags": ["Schedule"],
+        "summary": "Owner schedule for a time range",
+        "parameters": [
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "Range start (default: today local)" },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "Range end (default: from + 14 days)" }
+        ],
+        "responses": {
+          "200": { "description": "Merged schedule", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SchedulePayload" } } } },
+          "400": { "description": "Invalid range" },
+          "401": { "description": "Unauthorized" },
+          "500": { "description": "Server error" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/plan/{token}/schedule": {
+      "get": {
+        "tags": ["Schedule"],
+        "summary": "Public read-only schedule (valid share token)",
+        "parameters": [
+          { "name": "token", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SchedulePayload" } } } },
+          "400": { "description": "Invalid range" },
+          "404": { "description": "Invalid or unknown token" },
+          "500": { "description": "Server error" }
+        }
+      }
+    },
+    "/api/sync": {
+      "post": {
+        "tags": ["Sync"],
+        "summary": "Sync all calendar sources",
+        "responses": {
+          "200": { "description": "Per-source results", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/sources": {
+      "get": {
+        "tags": ["Sources"],
+        "summary": "List calendar sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/CalendarSource" } } }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      },
+      "post": {
+        "tags": ["Sources"],
+        "summary": "Add ICS (webcal) source only; OAuth uses /api/auth/.../start",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["kind", "name", "icalUrl"],
+                "properties": {
+                  "kind": { "type": "string", "enum": ["ICAL"] },
+                  "name": { "type": "string" },
+                  "icalUrl": { "type": "string", "format": "uri" },
+                  "color": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalendarSource" } } } },
+          "400": { "description": "Validation error" },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/sources/{id}": {
+      "delete": {
+        "tags": ["Sources"],
+        "summary": "Remove a source",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "401": { "description": "Unauthorized" } },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/sources/{id}/sync": {
+      "post": {
+        "tags": ["Sync"],
+        "summary": "Sync one source",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "imported": { "type": "integer" } } } } } },
+          "502": { "description": "Upstream/sync failure" },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/locations": {
+      "get": {
+        "tags": ["Locations"],
+        "summary": "List location windows",
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/LocationWindow" } } } } },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      },
+      "post": {
+        "tags": ["Locations"],
+        "summary": "Create location window",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["label", "startUtc", "endUtc"],
+                "properties": {
+                  "label": { "type": "string" },
+                  "address": { "type": "string" },
+                  "startUtc": { "type": "string", "format": "date-time" },
+                  "endUtc": { "type": "string", "format": "date-time" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LocationWindow" } } } },
+          "400": { "description": "Validation error" },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/locations/{id}": {
+      "delete": {
+        "tags": ["Locations"],
+        "summary": "Delete location window",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "401": { "description": "Unauthorized" } },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/share": {
+      "get": {
+        "tags": ["Share"],
+        "summary": "List share links",
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/ShareLink" } } } } },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      },
+      "post": {
+        "tags": ["Share"],
+        "summary": "Create share link",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "label": { "type": "string" } } } } }
+        },
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ShareLink" } } } },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/calendar/items": {
+      "get": {
+        "tags": ["Manual items"],
+        "summary": "List manual items in range",
+        "parameters": [
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rangeStart": { "type": "string" },
+                    "rangeEnd": { "type": "string" },
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ManualItem" } }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid range" },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      },
+      "post": {
+        "tags": ["Manual items"],
+        "summary": "Create manual item",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "startUtc", "endUtc"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "startUtc": { "type": "string", "format": "date-time" },
+                  "endUtc": { "type": "string", "format": "date-time" },
+                  "location": { "type": "string" },
+                  "description": { "type": "string" },
+                  "isBusy": { "type": "boolean" },
+                  "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManualItem" } } } },
+          "400": { "description": "Validation error" },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    },
+    "/api/calendar/items/{id}": {
+      "get": {
+        "tags": ["Manual items"],
+        "summary": "Get one manual item",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManualItem" } } } },
+          "404": { "description": "Not found" },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      },
+      "patch": {
+        "tags": ["Manual items"],
+        "summary": "Update manual item (partial)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "startUtc": { "type": "string", "format": "date-time" },
+                  "endUtc": { "type": "string", "format": "date-time" },
+                  "location": { "type": "string" },
+                  "description": { "type": "string" },
+                  "isBusy": { "type": "boolean" },
+                  "color": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ManualItem" } } } },
+          "400": { "description": "Validation error" },
+          "404": { "description": "Not found" },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OwnerCookie": [] }]
+      },
+      "delete": {
+        "tags": ["Manual items"],
+        "summary": "Delete manual item",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" }, "401": { "description": "Unauthorized" } },
+        "security": [{ "OwnerCookie": [] }]
+      }
+    }
+  }
+}
