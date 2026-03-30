@@ -39,6 +39,8 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 This repo includes a `Dockerfile` and `railway.toml` for Railway deployments.
 
+Railway will automatically suggest environment variables from a root `.env`-style file. This repo includes `.env.example`; in the Railway service "Variables" tab, you should be able to click "Import" to load the variable names/values as a starting point.
+
 ### Required env vars (set in Railway)
 - `DATABASE_URL`: Postgres connection string, e.g. `postgresql://USER:PASSWORD@HOST:5432/DBNAME?schema=public`
 - `APP_BASE_URL`: your Railway app URL (used for OAuth redirects), e.g. `https://your-app.up.railway.app`
@@ -46,6 +48,6 @@ This repo includes a `Dockerfile` and `railway.toml` for Railway deployments.
 - `SESSION_SECRET` (optional): if set, overrides JWT signing key (recommended)
 
 ### Database schema provisioning
-`railway.toml` runs `prisma db push` on deploy so Railway can boot immediately against Postgres.
+`railway.toml` attempts to run `prisma db push` on deploy so Railway can boot immediately against Postgres (it will skip automatically if `DATABASE_URL` isn’t set yet).
 
 After deploying, API docs should be available at `/docs` and the OpenAPI JSON at `/api/openapi`.
